@@ -52,6 +52,15 @@ async function resendRequest(path, options = {}) {
 function contactPath(email) { return `/contacts/${encodeURIComponent(email)}`; }
 function segmentPath(email, segmentId) { return `${contactPath(email)}/segments/${encodeURIComponent(segmentId)}`; }
 
+function contactRecord(result) {
+  return result?.data?.data && typeof result.data.data === "object" ? result.data.data : result?.data;
+}
+
+function providerCode(result) {
+  const data = result?.data;
+  return data?.name || data?.code || data?.statusCode || "unknown";
+}
+
 function welcomeEmail(email, replyTo) {
   const payload = {
     from: process.env.RESEND_FROM_EMAIL,
@@ -87,26 +96,28 @@ export default async function handler(request, response) {
   try {
     let contact = await resendRequest(contactPath(email));
     if (!contact.ok && contact.status !== 404) {
-      console.error("SHFFL waitlist contact lookup failed", { requestId, emailLogId, status: contact.status });
+      console.error("SHFFL waitlist contact lookup failed", { requestId, emailLogId, status: contact.status, providerCode: providerCode(contact) });
       return response.status(502).json({ error: "We could not save your email. Please try again." });
     }
     if (contact.status === 404) {
       contact = await resendRequest("/contacts", { method: "POST", body: JSON.stringify({ email }) });
       if (!contact.ok && contact.status !== 409) {
-        console.error("SHFFL waitlist contact creation failed", { requestId, emailLogId, status: contact.status });
+        console.error("SHFFL waitlist contact creation failed", { requestId, emailLogId, status: contact.status, providerCode: providerCode(contact) });
         return response.status(502).json({ error: "We could not save your email. Please try again." });
       }
       if (contact.status === 409) contact = await resendRequest(contactPath(email));
     }
     if (!contact.ok) {
-      console.error("SHFFL waitlist contact could not be resolved", { requestId, emailLogId, status: contact.status });
+      console.error("SHFFL waitlist contact could not be resolved", { requestId, emailLogId, status: contact.status, providerCode: providerCode(contact) });
       return response.status(502).json({ error: "We could not save your email. Please try again." });
     }
-    if (contact.data?.unsubscribed === true) return response.status(409).json({ error: "This email is unsubscribed. Please resubscribe before joining again." });
+    const contactData = contactRecord(contact);
+    if (contactData?.unsubscribed === true) return response.status(409).json({ error: "This email is unsubscribed. Please resubscribe before joining again." });
 
-    const membership = await resendRequest(segmentPath(email, segmentId), { method: "POST" });
+    const contactIdentifier = contactData?.id || email;
+    const membership = await resendRequest(segmentPath(contactIdentifier, segmentId), { method: "POST" });
     if (!membership.ok && membership.status !== 409) {
-      console.error("SHFFL waitlist segment add failed", { requestId, emailLogId, status: membership.status });
+      console.error("SHFFL waitlist segment add failed", { requestId, emailLogId, status: membership.status, providerCode: providerCode(membership) });
       return response.status(502).json({ error: "We could not save your email. Please try again." });
     }
 
