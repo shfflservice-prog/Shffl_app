@@ -1,60 +1,62 @@
-const openingIntro = document.createElement('div');
-openingIntro.className = 'opening-intro';
-openingIntro.setAttribute('aria-label', 'SHFFL opening animation');
-openingIntro.innerHTML = '<img src="assets/SHFFL_opening.gif" alt="SHFFL opening animation" />';
-document.body.prepend(openingIntro);
-document.documentElement.classList.add('intro-lock');
-document.body.classList.add('intro-lock');
+(() => {
+  const journey = document.querySelector(".journey");
+  const line = document.querySelector("#journey-line");
+  const stops = [...document.querySelectorAll(".journey-stop")];
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-const finishOpening = () => {
-  openingIntro.classList.add('is-done');
-  document.documentElement.classList.remove('intro-lock');
-  document.body.classList.remove('intro-lock');
-  window.setTimeout(() => openingIntro.remove(), 650);
-};
+  if (journey && line) {
+    const length = line.getTotalLength();
+    line.style.setProperty("--line-length", String(length));
+    line.style.strokeDasharray = String(length);
+    stops.forEach((stop) => stop.style.setProperty("--stop-delay", stop.dataset.delay || "0"));
+    if (reduceMotion) {
+      line.style.strokeDashoffset = "0";
+      stops.forEach((stop) => { stop.style.opacity = "1"; stop.style.transform = "none"; });
+    } else {
+      journey.classList.add("is-animated");
+    }
+  }
 
-if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-  finishOpening();
-} else {
-  window.setTimeout(finishOpening, 1850);
-}
+  const form = document.querySelector("[data-signup]");
+  const email = document.querySelector("#email");
+  const status = document.querySelector("#form-status");
+  if (!form || !email || !status) return;
 
-const reveals = document.querySelectorAll('.reveal');
-const observer = new IntersectionObserver((entries) => {
-  entries.forEach((entry) => {
-    if (entry.isIntersecting) { entry.target.classList.add('visible'); observer.unobserve(entry.target); }
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const value = email.value.trim();
+    status.className = "form-status";
+
+    if (!value || !email.validity.valid) {
+      status.textContent = "Enter a valid email address.";
+      status.classList.add("error");
+      email.focus();
+      return;
+    }
+
+    const button = form.querySelector("button");
+    email.disabled = true;
+    button.disabled = true;
+    button.textContent = "SENDING…";
+    status.textContent = "Saving your spot…";
+
+    try {
+      const response = await fetch("/api/subscribe", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: value })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "We could not save your email. Please try again.");
+      form.remove();
+      status.className = "form-status success";
+      status.textContent = "You’re on the list. See you in December.";
+    } catch (error) {
+      email.disabled = false;
+      button.disabled = false;
+      button.textContent = "JOIN THE LIST";
+      status.textContent = error instanceof Error ? error.message : "We could not save your email. Please try again.";
+      status.classList.add("error");
+    }
   });
-}, { threshold: 0.12 });
-reveals.forEach((el) => observer.observe(el));
-
-const glow = document.querySelector('.cursor-glow');
-if (glow && matchMedia('(pointer:fine)').matches) {
-  addEventListener('pointermove', (event) => {
-    glow.style.transform = `translate(${event.clientX - 120}px, ${event.clientY - 120}px)`;
-  }, { passive: true });
-}
-
-const header = document.querySelector('[data-header]');
-addEventListener('scroll', () => header?.classList.toggle('scrolled', scrollY > 20), { passive: true });
-
-const menuToggle = document.querySelector('[data-menu-toggle]');
-menuToggle?.addEventListener('click', () => {
-  const open = header.classList.toggle('menu-open');
-  menuToggle.setAttribute('aria-expanded', String(open));
-});
-
-const heroSlider = document.querySelector('[data-hero-slider]');
-if (heroSlider) {
-  const slides = [...heroSlider.querySelectorAll('.hero-slide')];
-  const dots = [...heroSlider.querySelectorAll('.hero-dots button')];
-  let active = 0;
-  let timer;
-  const showSlide = (index) => {
-    active = index;
-    slides.forEach((slide, i) => slide.classList.toggle('is-active', i === active));
-    dots.forEach((dot, i) => dot.classList.toggle('is-active', i === active));
-  };
-  const start = () => { timer = setInterval(() => showSlide((active + 1) % slides.length), 5200); };
-  dots.forEach((dot, i) => dot.addEventListener('click', () => { clearInterval(timer); showSlide(i); start(); }));
-  start();
-}
+})();
