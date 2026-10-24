@@ -104,19 +104,14 @@ export default async function handler(request, response) {
   const requestId = typeof globalThis.crypto?.randomUUID === "function" ? globalThis.crypto.randomUUID() : "request";
   const emailLogId = hashForLogs(email);
   try {
-    let contact = await resendRequest(contactPath(email));
-    if (!contact.ok && contact.status !== 404) {
-      console.error("SHFFL waitlist contact lookup failed", { requestId, emailLogId, status: contact.status, providerCode: providerCode(contact) });
-      return response.status(502).json({ error: "The waitlist contact service is unavailable. Please try again shortly." });
+    // Create first so a new signup only needs Contacts write permission.
+    // A 409 means the contact already exists; retrieve it to preserve unsubscribe state.
+    let contact = await resendRequest("/contacts", { method: "POST", body: JSON.stringify({ email }) });
+    if (!contact.ok && contact.status !== 409) {
+      console.error("SHFFL waitlist contact creation failed", { requestId, emailLogId, status: contact.status, providerCode: providerCode(contact) });
+      return response.status(502).json({ error: "The waitlist contact could not be saved. Please try again shortly." });
     }
-    if (contact.status === 404) {
-      contact = await resendRequest("/contacts", { method: "POST", body: JSON.stringify({ email }) });
-      if (!contact.ok && contact.status !== 409) {
-        console.error("SHFFL waitlist contact creation failed", { requestId, emailLogId, status: contact.status, providerCode: providerCode(contact) });
-        return response.status(502).json({ error: "The waitlist contact could not be saved. Please try again shortly." });
-      }
-      if (contact.status === 409) contact = await resendRequest(contactPath(email));
-    }
+    if (contact.status === 409) contact = await resendRequest(contactPath(email));
     if (!contact.ok) {
       console.error("SHFFL waitlist contact could not be resolved", { requestId, emailLogId, status: contact.status, providerCode: providerCode(contact) });
       return response.status(502).json({ error: "The waitlist contact could not be resolved. Please try again shortly." });
